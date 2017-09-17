@@ -7,4 +7,6 @@ ATOM RegWindowClass(HINSTANCE hInstance, LPCTSTR lpzClassName);
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
 
+bool ReadTable(LPWSTR fileName);
+
 #endif

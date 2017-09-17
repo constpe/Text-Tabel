@@ -6,6 +6,20 @@
 
 int areaWidth, areaHeight;
 std::vector<std::vector<std::string>> table;
+HMENU hMenu = CreateMenu();
+HMENU hFilePopupMenu = CreatePopupMenu();
+OPENFILENAME file;
+wchar_t fileName[255] = TEXT("");
+bool isTableSet = false;
+
+void FormMenu(HWND hWnd)
+{
+	AppendMenu(hFilePopupMenu, MFT_RADIOCHECK, 0, TEXT("Open"));
+
+	AppendMenu(hMenu, MF_STRING | MF_POPUP, (UINT)hFilePopupMenu, TEXT("File"));
+
+	SetMenu(hWnd, hMenu);
+}
 
 ATOM RegWindowClass(HINSTANCE hInstance, LPCTSTR lpzClassName)
 {
@@ -27,6 +41,16 @@ void DrawLine(HDC hdc, int x1, int y1, int x2, int y2)
 	LineTo(hdc, x2, y2);
 }
 
+std::wstring ToWideStringConvert(std::string s)
+{
+	int len = MultiByteToWideChar(CP_ACP, 0, s.c_str(), s.length() + 1, 0, 0);
+	wchar_t* wideS = new wchar_t[len];
+	MultiByteToWideChar(CP_ACP, 0, s.c_str(), s.length() + 1, wideS, len);
+	std::wstring res(wideS);
+	delete[] wideS;
+	return res;
+}
+
 void DrawTable(HDC hdc)
 {
 	int columnCount = table[0].size();
@@ -40,7 +64,7 @@ void DrawTable(HDC hdc)
 		{
 			int recordHeight = 2;
 			std::wstring currentLine;
-			std::wstring text = std::wstring(table[i][j].begin(), table[i][j].end());
+			std::wstring text = ToWideStringConvert(table[i][j].c_str());
 			int currentTextLength = 0;
 			for (int k = 0; k < text.length(); k++)
 			{
@@ -55,6 +79,7 @@ void DrawTable(HDC hdc)
 					if (k == text.length() - 1 && size.cx <= columnWidth - 4)
 					{
 						TextOut(hdc, 12 + columnWidth * j, ySlip + recordHeight, symbol.c_str(), symbol.length());
+						recordHeight += size.cy;
 					}
 					else
 					{
@@ -105,8 +130,32 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		PAINTSTRUCT ps;
 		hdc = BeginPaint(hWnd, &ps);
 		SetBkColor(hdc, RGB(244, 247, 252));
-		DrawTable(hdc);
+		if (isTableSet)
+			DrawTable(hdc);
 		EndPaint(hWnd, &ps);
+		break;
+	case WM_COMMAND:
+		switch (LOWORD(wParam))
+		{
+		case 0:
+			file.lpstrTitle = TEXT("Open table from file");
+			file.Flags = OFN_HIDEREADONLY;
+			if (!GetOpenFileName(&file))
+				return 1;
+			if (ReadTable(file.lpstrFile))
+			{
+				isTableSet = true;
+				RECT clearRect;
+				clearRect.left = 0;
+				clearRect.top = 0;
+				clearRect.right = areaWidth;
+				clearRect.bottom = areaHeight;
+				InvalidateRect(hWnd, &clearRect, 1);
+				UpdateWindow(hWnd);
+				ValidateRect(hWnd, &clearRect);
+			}
+			break;
+		}
 		break;
 	case WM_SIZE:
 		areaWidth = LOWORD(lParam);
@@ -125,35 +174,60 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 	return 0;
 }
 
-int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR nCmdLine, int cmdShow)
+bool ReadTable(LPWSTR fileName)
 {
+	table.clear();
+
 	std::string record;
 	std::vector<std::string> row;
 	std::ifstream in;
-	in.open("test.txt");
+
+	in.open(fileName);
 	while (!in.eof())
 	{
-		char c = in.get();
-		if (c != ';' && c > 32)
+		wchar_t c = in.get();
+		if (c != ';' && (c > 32 || c == ' '))
 		{
 			record += c;
 		}
-		else if (c == ';' && record != "")
+		else if (c == ';')
 		{
 			row.insert(row.end(), record);
 			record = "";
 		}
-		else if (c == '\n')
+		else if (c == '\n'  && row.size() != 0)
 		{
+			row.insert(row.end(), record);
+			record = "";
 			table.insert(table.end(), row);
 			row.clear();
 		}
 	}
+
 	if (row.size() != 0)
 	{
 		table.insert(table.end(), row);
 	}
 
+	if (table.size() != 0)
+		return true;
+	else
+		return false;
+}
+
+void InitOpenFileStruct(HINSTANCE hInstance)
+{
+	file.lStructSize = sizeof(OPENFILENAME);
+	file.hInstance = hInstance;
+	file.lpstrFilter = TEXT("Text\0*.txt\0CSV Table\0*.csv");
+	file.lpstrFile = fileName;
+	file.nMaxFile = 256;
+	file.lpstrInitialDir = TEXT(".\\");
+	file.lpstrDefExt = TEXT("txt");
+}
+
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR nCmdLine, int cmdShow)
+{	
 	LPCTSTR lpzClassName = TEXT("MyWindowClass");
 
 	if (!RegWindowClass(hInstance, lpzClassName))
@@ -163,9 +237,11 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR nCmdLin
 	if (!hWnd)
 		return 2;
 
+	FormMenu(hWnd);
+	InitOpenFileStruct(hInstance);
 	ShowWindow(hWnd, cmdShow);
 	UpdateWindow(hWnd);
-
+	
 	MSG msg;
 	int iGetOk = 0;
 	while ((iGetOk = GetMessage(&msg, NULL, 0, 0)) != 0)

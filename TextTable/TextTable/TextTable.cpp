@@ -8,6 +8,7 @@ int areaWidth, areaHeight;
 std::vector<std::vector<std::string>> table;
 HMENU hMenu = CreateMenu();
 HMENU hFilePopupMenu = CreatePopupMenu();
+HMENU hTypePopupMenu = CreatePopupMenu();
 OPENFILENAME file;
 wchar_t fileName[255] = TEXT("");
 bool isTableSet = false;
@@ -18,8 +19,12 @@ int scrollPos;
 void FormMenu(HWND hWnd)
 {
 	AppendMenu(hFilePopupMenu, MFT_RADIOCHECK, 0, TEXT("Open"));
+	AppendMenu(hTypePopupMenu, MF_UNCHECKED, 1, TEXT("Bold"));
+	AppendMenu(hTypePopupMenu, MF_UNCHECKED, 2, TEXT("Italic"));
+	AppendMenu(hTypePopupMenu, MF_UNCHECKED, 3, TEXT("Underline"));
 
 	AppendMenu(hMenu, MF_STRING | MF_POPUP, (UINT)hFilePopupMenu, TEXT("File"));
+	AppendMenu(hMenu, MF_STRING | MF_POPUP, (UINT)hTypePopupMenu, TEXT("Font type"));
 
 	SetMenu(hWnd, hMenu);
 }
@@ -62,7 +67,8 @@ void DrawTable(HWND hWnd, HDC hdc, int start)
 
 	for (int i = 0; i < table.size(); i++)
 	{
-		DrawLine(hdc, 10, yOffset, areaWidth - 10, yOffset);
+			DrawLine(hdc, 10, yOffset, areaWidth - 10, yOffset);
+		
 		int maxRecordHeight = 0;
 
 		for (int j = 0; j < table[i].size(); j++)
@@ -86,7 +92,8 @@ void DrawTable(HWND hWnd, HDC hdc, int start)
 
 					if (k == text.length() - 1 && size.cx <= columnWidth - 4)
 					{
-						TextOut(hdc, 12 + columnWidth * j, yOffset + recordHeight, symbol.c_str(), symbol.length());
+						
+							TextOut(hdc, 12 + columnWidth * j, yOffset + recordHeight, symbol.c_str(), symbol.length());
 						recordHeight += size.cy;
 					}
 					else
@@ -99,7 +106,8 @@ void DrawTable(HWND hWnd, HDC hdc, int start)
 				else if (k == text.length() - 1)
 				{
 					currentLine += symbol;
-					TextOut(hdc, 12 + columnWidth * j, yOffset + recordHeight, currentLine.c_str(), currentLine.length());
+
+						TextOut(hdc, 12 + columnWidth * j, yOffset + recordHeight, currentLine.c_str(), currentLine.length());
 					recordHeight += size.cy;
 				}
 				else
@@ -124,10 +132,12 @@ void DrawTable(HWND hWnd, HDC hdc, int start)
 	}
 	DrawLine(hdc, areaWidth - 10, 10 - start, areaWidth - 10, yOffset);
 
-	tableHeight = start + yOffset + 10;
+	tableHeight = start + yOffset + 50;
 
 	if (yOffset - areaHeight + start > 0)
+	{
 		SetScrollRange(hWnd, SB_VERT, 0, (yOffset - areaHeight + start) / 40 + 1, true);
+	}
 
 	if (scrollPos > (yOffset - areaHeight + start) / 40 + 1 && yOffset - areaHeight + start > 0)
 	{
@@ -149,6 +159,11 @@ void Redraw(HWND hWnd)
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	HDC hdc = GetDC(hWnd);
+	static int bold = 400;
+	static int italic = 0;
+	static int underline = 0;
+	static HFONT font;
+	static HFONT oldFont;
 
 	switch (message)
 	{
@@ -157,11 +172,16 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		hdc = BeginPaint(hWnd, &ps);
 		SetBkColor(hdc, RGB(244, 247, 252));
 
+		font = CreateFont(20, 0, 0, 0, bold, italic, underline, 0, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, TEXT("Arial")); 
+		oldFont = (HFONT)SelectObject(hdc, font);             
+
 		if (isTableSet)
 		{
 			DrawTable(hWnd, hdc, showTableStart);
 		}
 
+		SelectObject(hdc, oldFont);
+		DeleteObject(font);
 		EndPaint(hWnd, &ps);
 		break;
 	case WM_VSCROLL:
@@ -194,6 +214,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		}
 
 		Redraw(hWnd);
+		ReleaseDC(hWnd, hdc);
 
 		break;
 	case WM_COMMAND:
@@ -207,10 +228,40 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			if (ReadTable(file.lpstrFile))
 			{
 				isTableSet = true;
+				showTableStart = 0;
+				SetScrollPos(hWnd, SB_VERT, 0, true);
 				Redraw(hWnd);
 			}
 			break;
+		case 1:
+			if (bold == 400)
+			{
+				CheckMenuItem(hTypePopupMenu, 1, MF_CHECKED);
+				bold = 700;
+			}
+			else
+			{
+				CheckMenuItem(hTypePopupMenu, 1, MF_UNCHECKED);
+				bold = 400;
+			}
+
+			Redraw(hWnd);
+			
+			break;
+		case 2:
+			italic = (italic + 1) % 2;
+			CheckMenuItem(hTypePopupMenu, 2, italic == 0 ? MF_UNCHECKED : MF_CHECKED);
+			Redraw(hWnd);
+			break;
+		case 3:
+			underline = (underline + 1) % 2;
+			CheckMenuItem(hTypePopupMenu, 3, underline == 0 ? MF_UNCHECKED : MF_CHECKED);
+			Redraw(hWnd);
+
+			break;
 		}
+		ReleaseDC(hWnd, hdc);
+
 		break;
 	case WM_SIZE:
 		areaWidth = LOWORD(lParam);
@@ -241,7 +292,7 @@ bool ReadTable(LPWSTR fileName)
 	while (!in.eof())
 	{
 		wchar_t c = in.get();
-		if (c != ';' && (c > 32 || c == ' '))
+		if (c != ';' && (c > 32 || c == ' ') && c < 256)
 		{
 			record += c;
 		}
@@ -257,6 +308,11 @@ bool ReadTable(LPWSTR fileName)
 			table.insert(table.end(), row);
 			row.clear();
 		}
+	}
+
+	if (record != "")
+	{
+		row.insert(row.end(), record);
 	}
 
 	if (row.size() != 0)
@@ -303,7 +359,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR nCmdLin
 
 	ShowWindow(hWnd, cmdShow);
 	UpdateWindow(hWnd);
-	
+
 	MSG msg;
 	int iGetOk = 0;
 	while ((iGetOk = GetMessage(&msg, NULL, 0, 0)) != 0)
